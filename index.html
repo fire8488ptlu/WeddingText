@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blessing Wave (Real <br> every 8 chars)</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: radial-gradient(circle at center, #000 20%, #020202 80%);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        font-family: system-ui, -apple-system, "Noto Sans TC", Segoe UI, Roboto,
+          sans-serif;
+      }
+
+      /* 16:9 stage */
+      #stage {
+        width: 82vw;
+        aspect-ratio: 16/9;
+        background: rgba(0, 0, 0, 0.65);
+        border-radius: 22px;
+        border: 2px solid #222;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 0 50px rgba(255, 255, 255, 0.08);
+      }
+
+      .line {
+        position: absolute;
+        pointer-events: none;
+        max-width: 45%;
+        white-space: normal; /* using <br>, so normal is fine */
+        word-break: break-word; /* friendly for CJK/emoji if needed */
+        line-height: 1.5em;
+        text-align: center;
+        opacity: 0;
+        filter: drop-shadow(0 0 8px currentColor);
+        animation-name: floatFade;
+        animation-timing-function: ease-in-out;
+        animation-fill-mode: forwards;
+      }
+
+      @keyframes floatFade {
+        0% {
+          opacity: 0;
+          transform: translate(var(--x), var(--y)) scale(var(--s))
+            rotate(var(--r));
+        }
+        12% {
+          opacity: 1;
+        }
+        85% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+          transform: translate(
+              calc(var(--x) + var(--dx)),
+              calc(var(--y) - var(--dy))
+            )
+            scale(var(--s)) rotate(var(--r));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+
+    <script>
+      // ================= CONFIG =================
+      const WAVE_SIZE = 40; // how many to add per wave
+      const WAVE_INTERVAL = 4000; // time between waves (ms)
+      const BURST_TIME = 1400; // window to spawn the 40 → "many at once"
+      const MIN_LIFE = 6000; // min lifetime per item (ms)
+      const MAX_LIFE = 10000; // max lifetime per item (ms)
+      const MAX_LIVE = 120; // cap total elements (oldest removed)
+      const BREAK_EVERY = 8; // hard break every N characters/graphemes
+
+      const stage = document.getElementById("stage");
+      const rand = (min, max) => Math.random() * (max - min) + min;
+
+      // ---------- Load blessings from input.json ----------
+      async function loadBlessings() {
+        try {
+          const res = await fetch("input.json");
+          if (!res.ok) throw new Error("Cannot load input.json");
+          const data = await res.json();
+          return data.map((item) => String(item.answer_text ?? ""));
+        } catch (err) {
+          console.error(err);
+          return ["Error: 無法載入祝福資料"];
+        }
+      }
+
+      // ---------- Grapheme-safe splitter (emoji/ZWJ friendly) ----------
+      function splitGraphemes(text) {
+        if (typeof Intl !== "undefined" && Intl.Segmenter) {
+          const seg = new Intl.Segmenter("zh-Hant", {
+            granularity: "grapheme",
+          });
+          return Array.from(seg.segment(text), (s) => s.segment);
+        }
+        return [...text]; // fallback: codepoint spread
+      }
+
+      // ---------- Build real DOM nodes with <br> every N graphemes ----------
+      function wrapIntoNodes(text, limit = BREAK_EVERY) {
+        const g = splitGraphemes(text);
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < g.length; i += limit) {
+          const slice = g.slice(i, i + limit).join("");
+          frag.appendChild(document.createTextNode(slice));
+          if (i + limit < g.length)
+            frag.appendChild(document.createElement("br"));
+        }
+        return frag;
+      }
+
+      function spawnOne(blessings) {
+        if (stage.children.length >= MAX_LIVE)
+          stage.firstElementChild?.remove();
+
+        const el = document.createElement("div");
+        el.className = "line";
+
+        const rawText = blessings[Math.floor(Math.random() * blessings.length)];
+        el.replaceChildren(wrapIntoNodes(rawText, BREAK_EVERY)); // ✅ real <br> nodes
+
+        // font size by grapheme length
+        const len = splitGraphemes(rawText).length;
+        let fontSize;
+        if (len > 100) fontSize = 0.9;
+        else if (len > 60) fontSize = 1.1;
+        else if (len > 30) fontSize = 1.3;
+        else fontSize = 1.6;
+        el.style.fontSize = fontSize + "em";
+
+        // random placement + motion
+        const rect = stage.getBoundingClientRect();
+        const startX = rand(50, rect.width - 100);
+        const startY = rand(50, rect.height - 50);
+        const driftX = rand(-rect.width * 0.05, rect.width * 0.05);
+        const driftY = rand(rect.height * 0.12, rect.height * 0.25);
+        const scale = rand(0.95, 1.08);
+        const rot = rand(-6, 6).toFixed(2) + "deg";
+
+        const hue = Math.floor(rand(0, 360));
+        const sat = Math.floor(rand(60, 90));
+        const light = Math.floor(rand(60, 78));
+        el.style.color = `hsl(${hue} ${sat}% ${light}%)`;
+
+        el.style.setProperty("--x", startX + "px");
+        el.style.setProperty("--y", startY + "px");
+        el.style.setProperty("--dx", driftX + "px");
+        el.style.setProperty("--dy", driftY + "px");
+        el.style.setProperty("--s", scale);
+        el.style.setProperty("--r", rot);
+
+        const life = rand(MIN_LIFE, MAX_LIFE);
+        el.style.animationDuration = life + "ms";
+        el.style.animationDelay = rand(0, 250) + "ms";
+
+        stage.appendChild(el);
+        setTimeout(() => el.remove(), life + 200);
+      }
+
+      function spawnWave(blessings) {
+        const start = performance.now();
+        let spawned = 0;
+
+        function burstStep(now) {
+          const elapsed = now - start;
+          const t = Math.min(1, elapsed / BURST_TIME);
+          // ease-out: fast at start, slower later → feels like “many at once”
+          const desired = Math.floor(WAVE_SIZE * (1 - Math.pow(1 - t, 1.7)));
+          while (spawned < desired) {
+            spawnOne(blessings);
+            spawned++;
+          }
+          if (t < 1) requestAnimationFrame(burstStep);
+        }
+        requestAnimationFrame(burstStep);
+      }
+
+      function loop(blessings) {
+        spawnWave(blessings);
+        setTimeout(() => loop(blessings), WAVE_INTERVAL); // overlap waves (no hard cut)
+      }
+
+      // Start
+      loadBlessings().then((blessings) => {
+        for (let i = 0; i < 10; i++) spawnOne(blessings); // warm-up
+        loop(blessings);
+      });
+    </script>
+  </body>
+</html>
